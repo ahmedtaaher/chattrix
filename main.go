@@ -20,6 +20,8 @@ func main() {
 
 	router := gin.Default()
 
+  router.Static("/uploads", "./uploads")
+
 	routes.SetupRoutes(router, jwtService)
 
 	log.Printf("Server starting on port %d", cfg.Server.Port)

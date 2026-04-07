@@ -4,11 +4,18 @@ import (
 	"chattrix/dto"
 	"chattrix/service"
 	"chattrix/utils"
+	"fmt"
 	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 )
+
+const MaxFileSize = 2 << 20
 
 type AuthHandler struct {
 	service *service.AuthService
@@ -135,4 +142,83 @@ func (h *AuthHandler) ChangePassword(context *gin.Context) {
 	}
 
 	utils.SuccessResponse(context, http.StatusOK, "password changed successfully", nil)
+}
+
+func (h *AuthHandler) UploadAvatar(context *gin.Context) {
+	userIDRaw, exists := context.Get("user_id")
+	if !exists {
+		utils.ErrorResponse(context, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+
+	userID, ok := userIDRaw.(uuid.UUID)
+	if !ok {
+		utils.ErrorResponse(context, http.StatusUnauthorized, "invalid user id")
+		return
+	}
+
+	file, err := context.FormFile("avatar")
+	if err != nil {
+		utils.ErrorResponse(context, http.StatusBadRequest, "avatar file is required")
+		return
+	}
+
+	if file.Size > MaxFileSize {
+		utils.ErrorResponse(context, http.StatusBadRequest, "file too large (max 2MB)")
+		return
+	}
+
+	ext := strings.ToLower(filepath.Ext(file.Filename))
+	if ext != ".jpg" && ext != ".jpeg" && ext != ".png" {
+		utils.ErrorResponse(context, http.StatusBadRequest, "only .jpg, .jpeg, .png allowed")
+		return
+	}
+
+	filename := fmt.Sprintf("%s_%d%s",
+		userID.String(),
+		time.Now().Unix(),
+		ext,
+	)
+
+	uploadDir := "./uploads/avatars"
+	if err := os.MkdirAll(uploadDir, os.ModePerm); err != nil {
+		utils.ErrorResponse(context, http.StatusInternalServerError, "failed to create upload directory")
+		return
+	}
+
+	filePath := filepath.Join(uploadDir, filename)
+	if err := context.SaveUploadedFile(file, filePath); err != nil {
+		utils.ErrorResponse(context, http.StatusInternalServerError, "failed to save file")
+		return
+	}
+
+	avatarPath := "/uploads/avatars/" + filename
+
+	user, err := h.service.GetProfile(userID)
+	if err != nil {
+		utils.ErrorResponse(context, http.StatusInternalServerError, "failed to fetch user")
+		return
+	}
+	
+	if user.AvatarURL != nil && *user.AvatarURL != "" {
+		oldPath := "." + *user.AvatarURL
+		fmt.Println("Trying to delete:", oldPath)
+		if err := os.Remove(oldPath); err != nil {
+			fmt.Println("Delete failed:", err)
+		} else {
+				fmt.Println("Old avatar deleted successfully")
+			}
+	}
+
+	err = h.service.UpdateAvatar(userID, avatarPath)
+	if err != nil {
+		utils.ErrorResponse(context, http.StatusInternalServerError, "failed to update avatar")
+		return
+	}
+
+	fullURL := fmt.Sprintf("http://localhost:8080%s", avatarPath)
+
+	utils.SuccessResponse(context, http.StatusOK, "avatar uploaded successfully", gin.H{
+		"avatar_url": fullURL,
+	})
 }

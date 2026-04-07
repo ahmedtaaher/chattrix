@@ -13,7 +13,6 @@ type LoginRequest struct {
 
 type UpdateProfileRequest struct {
   Nickname string `json:"nickname" binding:"required,min=3,max=50"`
-  AvatarURL *string `json:"avatar_url" binding:"omitempty,url"`
 }
 
 type ChangePasswordRequest struct {

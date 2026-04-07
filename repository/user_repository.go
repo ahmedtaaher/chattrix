@@ -32,5 +32,9 @@ func(u *UserRepository) GetByID(id uuid.UUID) (*models.User, error) {
 }
 
 func(u *UserRepository) Update(user *models.User) error {
-  return u.db.Save(user).Error
+  return u.db.Model(&models.User{}).Where("id = ?", user.ID).Update("nickname", user.Nickname).Error
+}
+
+func(u *UserRepository) UpdateAvatar(userID uuid.UUID, avatarURL string) error {
+  return u.db.Model(&models.User{}).Where("id = ?", userID).Update("avatar_url", avatarURL).Error
 }

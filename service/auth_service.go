@@ -90,10 +90,6 @@ func(a *AuthService) UpdateProfile(userID uuid.UUID, updateRequest dto.UpdatePro
     user.Nickname = updateRequest.Nickname
   }
 
-  if updateRequest.AvatarURL != nil {
-    user.AvatarURL = updateRequest.AvatarURL
-  }
-
   return a.repo.Update(user)
 }
 
@@ -107,7 +103,7 @@ func(a *AuthService) ChangePassword(userID uuid.UUID, changePasswordRequest dto.
   }
 
   if !utils.CheckPasswordHash(changePasswordRequest.CurrentPassword, user.PasswordHash) {
-		return errors.New("invalid username or password")
+		return errors.New("invalid password")
 	}
 
   if utils.CheckPasswordHash(changePasswordRequest.NewPassword, user.PasswordHash) {
@@ -126,4 +122,8 @@ func(a *AuthService) ChangePassword(userID uuid.UUID, changePasswordRequest dto.
   }
 
   return nil
+}
+
+func (a *AuthService) UpdateAvatar(userID uuid.UUID, avatarURL string) error {
+	return a.repo.UpdateAvatar(userID, avatarURL)
 }

@@ -31,6 +31,7 @@ func SetupRoutes(router *gin.Engine, jwtService *utils.JWTService) {
       protected.GET("/profile", authHandler.GetProfile)
       protected.PUT("/profile", authHandler.UpdateProfile)
       protected.POST("/change-password", authHandler.ChangePassword)
+      protected.POST("/upload-avatar", authHandler.UploadAvatar)
     }
   }
 }
