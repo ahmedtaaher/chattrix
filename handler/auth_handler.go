@@ -174,11 +174,11 @@ func (h *AuthHandler) UploadAvatar(context *gin.Context) {
 		return
 	}
 
-	filename := fmt.Sprintf("%s_%d%s",
-		userID.String(),
-		time.Now().Unix(),
-		ext,
-	)
+	user, err := h.service.GetProfile(userID)
+	if err != nil {
+		utils.ErrorResponse(context, http.StatusInternalServerError, "failed to fetch user")
+		return
+	}
 
 	uploadDir := "./uploads/avatars"
 	if err := os.MkdirAll(uploadDir, os.ModePerm); err != nil {
@@ -186,7 +186,9 @@ func (h *AuthHandler) UploadAvatar(context *gin.Context) {
 		return
 	}
 
+	filename := fmt.Sprintf("%s_%d%s", userID.String(), time.Now().Unix(), ext)
 	filePath := filepath.Join(uploadDir, filename)
+
 	if err := context.SaveUploadedFile(file, filePath); err != nil {
 		utils.ErrorResponse(context, http.StatusInternalServerError, "failed to save file")
 		return
@@ -194,30 +196,19 @@ func (h *AuthHandler) UploadAvatar(context *gin.Context) {
 
 	avatarPath := "/uploads/avatars/" + filename
 
-	user, err := h.service.GetProfile(userID)
-	if err != nil {
-		utils.ErrorResponse(context, http.StatusInternalServerError, "failed to fetch user")
-		return
-	}
-	
 	if user.AvatarURL != nil && *user.AvatarURL != "" {
 		oldPath := "." + *user.AvatarURL
-		fmt.Println("Trying to delete:", oldPath)
 		if err := os.Remove(oldPath); err != nil {
-			fmt.Println("Delete failed:", err)
-		} else {
-				fmt.Println("Old avatar deleted successfully")
-			}
+			fmt.Println("Delete failed:", err) 
+		}
 	}
 
-	err = h.service.UpdateAvatar(userID, avatarPath)
-	if err != nil {
+	if err = h.service.UpdateAvatar(userID, avatarPath); err != nil {
 		utils.ErrorResponse(context, http.StatusInternalServerError, "failed to update avatar")
 		return
 	}
 
 	fullURL := fmt.Sprintf("http://localhost:8080%s", avatarPath)
-
 	utils.SuccessResponse(context, http.StatusOK, "avatar uploaded successfully", gin.H{
 		"avatar_url": fullURL,
 	})

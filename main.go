@@ -17,8 +17,8 @@ func main() {
 	db.InitDB(cfg)
   
   jwtService := utils.NewJWTService(cfg.Auth.JWTSecret)
-
-	router := gin.Default()
+  
+  router := gin.Default()
 
   router.Static("/uploads", "./uploads")
 
