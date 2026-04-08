@@ -7,15 +7,25 @@ import (
 	"chattrix/repository"
 	"chattrix/service"
 	"chattrix/utils"
+	"chattrix/websocket"
 
 	"github.com/gin-gonic/gin"
 )
 
 func SetupRoutes(router *gin.Engine, jwtService *utils.JWTService) {
   db := db.GetDB()
+  
   userRepo := repository.NewUserRepository(db)
+  messageRepo := repository.NewMessageRepository(db)
+  chatRepo := repository.NewChatRepository(db)
+  
+  hub := websocket.NewHub()
+  
   authService := service.NewAuthService(userRepo, jwtService)
+  messageService := service.NewMessageService(messageRepo, chatRepo, hub)
+
   authHandler := handler.NewAuthHandler(authService)
+  wsHandler := websocket.NewWSHandler(hub, authService, jwtService, messageService)
   
   v1 := router.Group("/chattrix/api")
   {
@@ -34,4 +44,6 @@ func SetupRoutes(router *gin.Engine, jwtService *utils.JWTService) {
       protected.POST("/upload-avatar", authHandler.UploadAvatar)
     }
   }
+
+  router.GET("/ws", wsHandler.HandleConnection)
 }

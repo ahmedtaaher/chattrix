@@ -65,6 +65,8 @@ func (a *AuthService) Login(loginRequest dto.LoginRequest) (string, error) {
 		return "", fmt.Errorf("failed to generate token: %w", err)
 	}
 
+  _ = a.SetOnline(user.ID)
+
 	return token, nil
 }
 
@@ -126,4 +128,12 @@ func(a *AuthService) ChangePassword(userID uuid.UUID, changePasswordRequest dto.
 
 func (a *AuthService) UpdateAvatar(userID uuid.UUID, avatarURL string) error {
 	return a.repo.UpdateAvatar(userID, avatarURL)
+}
+
+func (a *AuthService) SetOnline(userID uuid.UUID) error {
+  return a.repo.SetOnline(userID)
+}
+
+func (a *AuthService) SetOffline(userID uuid.UUID) error {
+	return a.repo.SetOffline(userID)
 }
