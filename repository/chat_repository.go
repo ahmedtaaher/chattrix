@@ -200,3 +200,21 @@ func (c *ChatRepository) SearchChats(userID uuid.UUID, query string) ([]dto.Chat
 
 	return chats, err
 }
+
+func (c *ChatRepository) CreateInvite(invite *models.ChatInvite) error {
+	return c.db.Create(invite).Error
+}
+
+func (c *ChatRepository) GetInviteByCode(code string) (*models.ChatInvite, error) {
+	var invite models.ChatInvite
+
+	err := c.db.
+		Where("invite_code = ?", code).
+		First(&invite).Error
+
+	if err != nil {
+		return nil, err
+	}
+
+	return &invite, nil
+}

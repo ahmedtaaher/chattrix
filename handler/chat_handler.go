@@ -224,3 +224,42 @@ func (h *ChatHandler) SearchChats(context *gin.Context) {
 
 	utils.SuccessResponse(context, http.StatusOK, "search results", chats)
 }
+
+func (h *ChatHandler) CreateInvite(context *gin.Context) {
+	chatID, _ := uuid.Parse(context.Param("id"))
+
+	userVal, _ := context.Get("user_id")
+	userID := userVal.(uuid.UUID)
+
+	code, err := h.chatService.CreateInvite(userID, chatID)
+	if err != nil {
+		utils.ErrorResponse(context, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	utils.SuccessResponse(context, http.StatusOK, "invite created", gin.H{
+		"code": code,
+	})
+}
+
+func (h *ChatHandler) JoinByInvite(context *gin.Context) {
+	var body struct {
+		Code string `json:"code"`
+	}
+
+	if err := context.ShouldBindJSON(&body); err != nil {
+		utils.ErrorResponse(context, http.StatusBadRequest, "invalid request")
+		return
+	}
+
+	userVal, _ := context.Get("user_id")
+	userID := userVal.(uuid.UUID)
+
+	err := h.chatService.JoinByInvite(userID, body.Code)
+	if err != nil {
+		utils.ErrorResponse(context, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	utils.SuccessResponse(context, http.StatusOK, "joined chat", nil)
+}

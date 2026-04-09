@@ -58,7 +58,10 @@ func SetupRoutes(router *gin.Engine, jwtService *utils.JWTService) {
         chats.PUT("/:id/users/:user_id/role", chatHandler.ChangeUserRole)
         chats.DELETE("/:id", chatHandler.DeleteChat)
         chats.GET("/search", chatHandler.SearchChats)
+        chats.POST("/:id/invite", chatHandler.CreateInvite)
       }
+
+      protected.POST("/join", chatHandler.JoinByInvite)
     }
   }
 

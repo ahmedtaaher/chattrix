@@ -4,7 +4,9 @@ import (
 	"chattrix/dto"
 	"chattrix/models"
 	"chattrix/repository"
+	"chattrix/utils"
 	"errors"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -153,4 +155,43 @@ func (s *ChatService) DeleteChat(requesterID, chatID uuid.UUID) error {
 
 func (s *ChatService) SearchChats(userID uuid.UUID, query string) ([]dto.ChatResponse, error) {
 	return s.chatRepo.SearchChats(userID, query)
+}
+
+func (s *ChatService) CreateInvite(userID, chatID uuid.UUID) (string, error) {
+	isAdmin, err := s.isAdmin(chatID, userID)
+	if err != nil || !isAdmin {
+		return "", errors.New("only admin can create invite")
+	}
+
+	code := utils.GenerateCode()
+
+	invite := models.ChatInvite{
+		ChatID:     chatID,
+		InviteCode: code, 
+		CreatedBy:  &userID,
+	}
+
+	if err := s.chatRepo.CreateInvite(&invite); err != nil {
+		return "", err
+	}
+
+	return code, nil
+}
+
+func (s *ChatService) JoinByInvite(userID uuid.UUID, code string) error {
+	invite, err := s.chatRepo.GetInviteByCode(code)
+	if err != nil {
+		return errors.New("invalid invite code")
+	}
+
+	if invite.ExpiresAt != nil && time.Now().After(*invite.ExpiresAt) {
+		return errors.New("invite expired")
+	}
+
+	isMember, _ := s.chatRepo.IsMember(invite.ChatID, userID)
+	if isMember {
+		return errors.New("already in chat")
+	}
+
+	return s.chatRepo.AddChatMembers(invite.ChatID, []uuid.UUID{userID})
 }
