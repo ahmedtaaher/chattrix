@@ -5,6 +5,7 @@ import (
 	"chattrix/models"
 	"chattrix/repository"
 	"encoding/json"
+	"log"
 
 	"github.com/google/uuid"
 )
@@ -55,11 +56,16 @@ func (s *MessageService) HandleSendMessage(userID uuid.UUID, wsMsg dto.WSMessage
 			onlineUsers = append(onlineUsers, uid)
 		}
 
-		_ = s.messageRepo.CreateStatus(&models.MessageStatus{
+		err := s.messageRepo.CreateStatus(&models.MessageStatus{
 			MessageID: message.ID,
 			UserID:    uid,
 			Status:    status,
 		})
+
+		if err != nil {
+			log.Println("create status error:", err)
+			return nil, nil, err
+		}
 	}
 
   if s.onlineChecker.IsOnline(userID) {

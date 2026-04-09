@@ -23,8 +23,11 @@ func SetupRoutes(router *gin.Engine, jwtService *utils.JWTService) {
   
   authService := service.NewAuthService(userRepo, jwtService)
   messageService := service.NewMessageService(messageRepo, chatRepo, hub)
-
+  chatService := service.NewChatService(chatRepo)
+  
   authHandler := handler.NewAuthHandler(authService)
+  chatHandler := handler.NewChatHandler(chatService)
+  
   wsHandler := websocket.NewWSHandler(hub, authService, jwtService, messageService)
   
   v1 := router.Group("/chattrix/api")
@@ -42,6 +45,20 @@ func SetupRoutes(router *gin.Engine, jwtService *utils.JWTService) {
       protected.PUT("/profile", authHandler.UpdateProfile)
       protected.POST("/change-password", authHandler.ChangePassword)
       protected.POST("/upload-avatar", authHandler.UploadAvatar)
+
+      chats := protected.Group("/chats")
+      {
+        chats.POST("", chatHandler.CreateChat)
+        chats.GET("", chatHandler.GetUserChats)
+        chats.POST("/:id/users", chatHandler.AddUsers)
+        chats.DELETE("/:id/users/:user_id", chatHandler.RemoveUser)
+        chats.DELETE("/:id/leave", chatHandler.LeaveChat)
+        chats.PUT("/:id/pin", chatHandler.PinChat)
+        chats.PUT("/:id/mute", chatHandler.MuteChat)
+        chats.PUT("/:id/users/:user_id/role", chatHandler.ChangeUserRole)
+        chats.DELETE("/:id", chatHandler.DeleteChat)
+        chats.GET("/search", chatHandler.SearchChats)
+      }
     }
   }
 
