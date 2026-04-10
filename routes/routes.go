@@ -22,10 +22,11 @@ func SetupRoutes(router *gin.Engine, jwtService *utils.JWTService) {
   hub := websocket.NewHub()
   
   authService := service.NewAuthService(userRepo, jwtService)
-  messageService := service.NewMessageService(messageRepo, chatRepo, hub)
+  messageService := service.NewMessageService(messageRepo, chatRepo, userRepo, hub)
   chatService := service.NewChatService(chatRepo)
   
   authHandler := handler.NewAuthHandler(authService)
+  messageHandler := handler.NewMessageHandler(messageService)
   chatHandler := handler.NewChatHandler(chatService)
   
   wsHandler := websocket.NewWSHandler(hub, authService, jwtService, messageService)
@@ -45,6 +46,13 @@ func SetupRoutes(router *gin.Engine, jwtService *utils.JWTService) {
       protected.PUT("/profile", authHandler.UpdateProfile)
       protected.POST("/change-password", authHandler.ChangePassword)
       protected.POST("/upload-avatar", authHandler.UploadAvatar)
+
+      messages := protected.Group("/messages")
+      {
+	      messages.GET("/:chat_id", messageHandler.GetMessages)
+	      messages.PUT("/:id", messageHandler.EditMessage)
+	      messages.DELETE("/:id", messageHandler.DeleteMessage)
+      }
 
       chats := protected.Group("/chats")
       {

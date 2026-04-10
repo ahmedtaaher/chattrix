@@ -2,6 +2,8 @@ package repository
 
 import (
 	"chattrix/models"
+	"errors"
+	"time"
 
 	"github.com/google/uuid"
 	"gorm.io/gorm"
@@ -64,3 +66,87 @@ func (m *MessageRepository) MarkAsDelivered(userID uuid.UUID) error {
 	`, userID).Error
 }
 
+func (m *MessageRepository) CreateAttachment(attachment *models.Attachment) error {
+	return m.db.Create(attachment).Error
+}
+
+func (m *MessageRepository) GetMessageWithAttachments(messageID uuid.UUID) (*models.Message, error) {
+	var msg models.Message
+
+	err := m.db.
+		Preload("Attachments").
+		First(&msg, "id = ?", messageID).Error
+
+	if err != nil {
+		return nil, err
+	}
+
+	return &msg, nil
+}
+
+func (m *MessageRepository) GetMessageByID(messageID uuid.UUID) (*models.Message, error) {
+	var msg models.Message
+
+	err := m.db.First(&msg, "id = ?", messageID).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, errors.New("message not found")
+		}
+		return nil, err
+	}
+
+	return &msg, nil
+}
+
+func (m *MessageRepository) GetMessages(chatID uuid.UUID, limit, offset int) ([]models.Message, error) {
+	var messages []models.Message
+
+	err := m.db.
+		Preload("Attachments").
+		Where("chat_id = ?", chatID).
+		Order("sent_at DESC").
+		Limit(limit).
+		Offset(offset).
+		Find(&messages).Error
+
+	return messages, err
+}
+
+func (m *MessageRepository) UpdateMessageContent(messageID uuid.UUID, content string) error {
+	return m.db.Model(&models.Message{}).
+		Where("id = ?", messageID).
+		Updates(map[string]interface{}{
+			"content":   content,
+			"edited_at": time.Now(),
+		}).Error
+}
+
+func (m *MessageRepository) SoftDelete(messageID uuid.UUID) error {
+	return m.db.Model(&models.Message{}).
+		Where("id = ?", messageID).
+		Update("is_deleted", true).Error
+}
+
+func (m *MessageRepository) AddReaction(reaction *models.MessageReaction) error {
+	return m.db.Create(reaction).Error
+}
+
+func (m *MessageRepository) RemoveReaction(messageID, userID uuid.UUID, reaction string) error {
+	return m.db.
+		Where("message_id = ? AND user_id = ? AND reaction = ?", messageID, userID, reaction).
+		Delete(&models.MessageReaction{}).Error
+}
+
+func (m *MessageRepository) GetMessageWithFullData(messageID uuid.UUID) (*models.Message, error) {
+	var msg models.Message
+
+	err := m.db.
+		Preload("Attachments").
+		Preload("Reactions").
+		Preload("ReplyToMessage").
+		Preload("ReplyToMessage.Attachments").
+		Preload("ReplyToMessage.Reactions").
+		First(&msg, "id = ?", messageID).Error
+
+	return &msg, err
+}

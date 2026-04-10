@@ -11,9 +11,12 @@ type Message struct {
 	ChatID           uuid.UUID  `gorm:"type:uuid;not null"`
 	SenderID         uuid.UUID  `gorm:"type:uuid;not null"`
 	Type             string     `gorm:"size:20;not null"`
-	Content          *string    `gorm:"type:text"`
-	ReplyToMessageID *uuid.UUID `gorm:"type:uuid"`
+	Content          *string    
+	ReplyToMessageID *uuid.UUID 
 	SentAt           time.Time  `gorm:"autoCreateTime"`
 	EditedAt         *time.Time
 	IsDeleted        bool `gorm:"default:false"`
+  Attachments      []Attachment `gorm:"foreignKey:MessageID"`
+  Reactions        []MessageReaction   `gorm:"foreignKey:MessageID"`
+  ReplyToMessage   *Message `gorm:"foreignKey:ReplyToMessageID"`
 }

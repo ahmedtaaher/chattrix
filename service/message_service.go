@@ -2,42 +2,92 @@ package service
 
 import (
 	"chattrix/dto"
+	"chattrix/mapper"
 	"chattrix/models"
 	"chattrix/repository"
+	"chattrix/utils"
 	"encoding/json"
+	"errors"
 	"log"
 
 	"github.com/google/uuid"
 )
 
 type OnlineChecker interface {
-  IsOnline(userID uuid.UUID) bool
+	IsOnline(userID uuid.UUID) bool
 }
 
 type MessageService struct {
-	messageRepo    *repository.MessageRepository
-  chatRepo       *repository.ChatRepository
-  onlineChecker  OnlineChecker
+	messageRepo   *repository.MessageRepository
+	chatRepo      *repository.ChatRepository
+  userRepo      *repository.UserRepository
+	onlineChecker OnlineChecker
 }
 
-func NewMessageService(messageRepo *repository.MessageRepository, chatRepo *repository.ChatRepository, onlineChecker OnlineChecker) *MessageService {
+func NewMessageService(messageRepo *repository.MessageRepository, chatRepo *repository.ChatRepository, userRepo *repository.UserRepository, onlineChecker OnlineChecker) *MessageService {
 	return &MessageService{
-		messageRepo:    messageRepo,
-		chatRepo:       chatRepo,
-		onlineChecker:  onlineChecker,
+		messageRepo:   messageRepo,
+		chatRepo:      chatRepo,
+		userRepo:      userRepo,
+		onlineChecker: onlineChecker,
 	}
 }
 
 func (s *MessageService) HandleSendMessage(userID uuid.UUID, wsMsg dto.WSMessage) ([]byte, []uuid.UUID, error) {
+	if wsMsg.Content == "" && len(wsMsg.Files) == 0 {
+		return nil, nil, errors.New("message can not be empty")
+	}
+
+	msgType := wsMsg.Type
+	if msgType == "" {
+		msgType = "text"
+	}
+
+	validTypes := map[string]bool{"text": true, "image": true, "file": true, "voice": true}
+
+	if !validTypes[msgType] {
+		return nil, nil, errors.New("invalid message type")
+	}
+
+	var content *string
+	if wsMsg.Content != "" {
+		content = &wsMsg.Content
+	}
+
+	if wsMsg.ReplyToID != nil {
+    replyMsg, err := s.messageRepo.GetMessageByID(*wsMsg.ReplyToID)
+    if err != nil {
+      return nil, nil, errors.New("invalid reply message")
+    }
+
+    if replyMsg.ChatID != wsMsg.ChatID {
+      return nil, nil, errors.New("reply message does not belong to the same chat")
+    }
+	}
+
 	message := models.Message{
-		ChatID:   wsMsg.ChatID,
-		SenderID: userID,
-		Type:     "text",
-		Content:  &wsMsg.Content,
+		ChatID:           wsMsg.ChatID,
+		SenderID:         userID,
+		Type:             msgType,
+		Content:          content,
+		ReplyToMessageID: wsMsg.ReplyToID,
 	}
 
 	if err := s.messageRepo.CreateMessage(&message); err != nil {
 		return nil, nil, err
+	}
+
+	for _, f := range wsMsg.Files {
+		att := models.Attachment{
+			MessageID: message.ID,
+			FileURL:   f.FileURL,
+			FileType:  f.FileType,
+			FileSize:  f.FileSize,
+		}
+
+		if err := s.messageRepo.CreateAttachment(&att); err != nil {
+			return nil, nil, err
+		}
 	}
 
 	memberIDs, err := s.chatRepo.GetChatMembers(wsMsg.ChatID)
@@ -45,16 +95,19 @@ func (s *MessageService) HandleSendMessage(userID uuid.UUID, wsMsg dto.WSMessage
 		return nil, nil, err
 	}
 
-  var onlineUsers []uuid.UUID
+	onlineMap := make(map[uuid.UUID]bool)
 
 	for _, uid := range memberIDs {
-
 		status := "sent"
 
 		if uid != userID && s.onlineChecker.IsOnline(uid) {
 			status = "delivered"
-			onlineUsers = append(onlineUsers, uid)
+			onlineMap[uid] = true
 		}
+
+    if uid == userID {
+      onlineMap[uid] = true
+    }
 
 		err := s.messageRepo.CreateStatus(&models.MessageStatus{
 			MessageID: message.ID,
@@ -68,19 +121,40 @@ func (s *MessageService) HandleSendMessage(userID uuid.UUID, wsMsg dto.WSMessage
 		}
 	}
 
-  if s.onlineChecker.IsOnline(userID) {
-		onlineUsers = append(onlineUsers, userID)
+  if wsMsg.Content != "" {
+    usernames := utils.ExtractMentions(wsMsg.Content)
+    for _, username := range usernames {
+      user, err := s.userRepo.GetByUsername(username)
+      if err != nil {
+        continue
+      }
+      
+      onlineMap[user.ID] = true
+    }
+  }
+
+  fullMsg, err := s.messageRepo.GetMessageWithFullData(message.ID)
+  if err != nil {
+    return nil, nil, err
+  }
+
+  responseDto := mapper.ToMessageResponse(fullMsg)
+
+  response, _ := json.Marshal(map[string]interface{}{
+    "type":    "message",
+    "message": responseDto,
+  })
+
+	var onlineUsers []uuid.UUID
+	for uid := range onlineMap {
+		onlineUsers = append(onlineUsers, uid)
 	}
 
-	response, _ := json.Marshal(map[string]interface{}{
-		"type":    "message",
-		"message": message,
-	})
 
 	return response, onlineUsers, nil
 }
 
-func (s *MessageService) HandleSeen(userID uuid.UUID,chatID uuid.UUID) ([]byte, []uuid.UUID, error) {
+func (s *MessageService) HandleSeen(userID uuid.UUID, chatID uuid.UUID) ([]byte, []uuid.UUID, error) {
 	if err := s.messageRepo.MarkMessagesAsSeen(chatID, userID); err != nil {
 		return nil, nil, err
 	}
@@ -153,3 +227,94 @@ func (s *MessageService) HandleUnreadMessages(userID uuid.UUID) ([]byte, error) 
 	return response, nil
 }
 
+func (s *MessageService) GetMessages(chatID uuid.UUID, limit, offset int) ([]models.Message, error) {
+	return s.messageRepo.GetMessages(chatID, limit, offset)
+}
+
+func (s *MessageService) EditMessage(userID, messageID uuid.UUID, content string) error {
+	msg, err := s.messageRepo.GetMessageByID(messageID)
+	if err != nil {
+		return errors.New("message not found")
+	}
+
+	if msg.SenderID != userID {
+		return errors.New("not allowed")
+	}
+
+	return s.messageRepo.UpdateMessageContent(messageID, content)
+}
+
+func (s *MessageService) DeleteMessage(userID, messageID uuid.UUID) error {
+	msg, err := s.messageRepo.GetMessageByID(messageID)
+	if err != nil {
+		return errors.New("message not found")
+	}
+
+	if msg.SenderID != userID {
+		return errors.New("not allowed")
+	}
+
+	return s.messageRepo.SoftDelete(messageID)
+}
+
+func (s *MessageService) ToggleReaction(userID, messageID uuid.UUID, reaction string) error {
+	_, err := s.messageRepo.GetMessageByID(messageID)
+	if err != nil {
+		return errors.New("message not found")
+	}
+
+	err = s.messageRepo.RemoveReaction(messageID, userID, reaction)
+	if err == nil {
+		return nil 
+	}
+
+	return s.messageRepo.AddReaction(&models.MessageReaction{
+		MessageID: messageID,
+		UserID:    userID,
+		Reaction:  reaction,
+	})
+}
+
+func (s *MessageService) GetMembersByMessage(messageID uuid.UUID) ([]uuid.UUID, error) {
+	msg, err := s.messageRepo.GetMessageByID(messageID)
+	if err != nil {
+		return nil, err
+	}
+
+	return s.chatRepo.GetChatMembers(msg.ChatID)
+}
+
+func (s *MessageService) EditMessageRealtime(userID, messageID uuid.UUID, content string) ([]byte, []uuid.UUID, error) {
+	err := s.EditMessage(userID, messageID, content)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	msg, _ := s.messageRepo.GetMessageByID(messageID)
+	members, _ := s.chatRepo.GetChatMembers(msg.ChatID)
+
+	response, _ := json.Marshal(map[string]interface{}{
+		"type":       "edit",
+		"message_id": messageID,
+		"content":    content,
+	})
+
+	return response, members, nil
+}
+
+func (s *MessageService) DeleteMessageRealtime(userID, messageID uuid.UUID) ([]byte, []uuid.UUID, error) {
+	err := s.DeleteMessage(userID, messageID)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	msg, _ := s.messageRepo.GetMessageByID(messageID)
+	members, _ := s.chatRepo.GetChatMembers(msg.ChatID)
+
+	response, _ := json.Marshal(map[string]interface{}{
+		"type":       "delete",
+		"message_id": messageID,
+	})
+
+	return response, members, nil
+}

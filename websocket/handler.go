@@ -61,16 +61,16 @@ func (h *WSHandler) HandleConnection(context *gin.Context) {
 		log.Println("Upgrade error:", err)
 		return
 	}
+  defer conn.Close()
 
 	h.hub.AddUser(userID, conn)
 	_ = h.authService.SetOnline(userID)
+  log.Println("user connected:", userID)
   
   unreadResponse, err := h.messageService.HandleUnreadMessages(userID)
   if err == nil {
     h.hub.SendToUsers([]uuid.UUID{userID}, unreadResponse)
   }
-
-	log.Println("User connected:", userID)
 
 	for {
 		_, msgBytes, err := conn.ReadMessage()
@@ -78,15 +78,24 @@ func (h *WSHandler) HandleConnection(context *gin.Context) {
 			break
 		}
 
-		var wsMsg dto.WSMessage
-		if err := json.Unmarshal(msgBytes, &wsMsg); err != nil {
-			log.Println("Invalid message format")
-			continue
-		}
+		var base struct {
+      Type string `json:"type"`
+    }
 
-		switch wsMsg.Type {
+    if err := json.Unmarshal(msgBytes, &base); err != nil {
+      log.Println("Invalid message format:", err)
+      continue
+    }
+
+		switch base.Type {
 
 		case "message":
+      var wsMsg dto.WSMessage
+      if err := json.Unmarshal(msgBytes, &wsMsg); err != nil {
+        log.Println("Invalid message format:", err)
+        continue
+      }
+
 			response, userIDs, err := h.messageService.HandleSendMessage(userID, wsMsg)
 			if err != nil {
 				log.Println("Message error:", err)
@@ -96,28 +105,96 @@ func (h *WSHandler) HandleConnection(context *gin.Context) {
 			h.hub.SendToUsers(userIDs, response)
     
     case "seen":
-      response, userIDs, err := h.messageService.HandleSeen(userID, wsMsg.ChatID)
+      var body struct {
+        ChatID uuid.UUID `json:"chat_id"`
+      }
+      if err := json.Unmarshal(msgBytes, &body); err != nil {
+        log.Println("Invalid seen format:", err)
+        continue
+      }
+
+      response, userIDs, err := h.messageService.HandleSeen(userID, body.ChatID)
       if err != nil {
         continue
       }
       
       h.hub.SendToUsers(userIDs, response)
 
-    case "typing":
-      response, userIDs, err := h.messageService.HandleTyping(userID, wsMsg.ChatID, true)
+    case "typing", "stop_typing":
+      var body struct {
+        ChatID uuid.UUID `json:"chat_id"`
+      }
+      if err := json.Unmarshal(msgBytes, &body); err != nil {
+        log.Println("Invalid typing format:", err)
+        continue
+      }
+
+      isTyping := base.Type == "typing"
+
+      response, userIDs, err := h.messageService.HandleTyping(userID, body.ChatID, isTyping)
       if err != nil {
         continue
       }
       
       h.hub.SendToUsers(userIDs, response)
 
-    case "stop_typing":
-      response, userIDs, err := h.messageService.HandleTyping(userID, wsMsg.ChatID, false)
-      if err != nil {
-        continue
-      }
-      
-      h.hub.SendToUsers(userIDs, response)
+    case "reaction":
+			var r dto.WSReaction
+			if err := json.Unmarshal(msgBytes, &r); err != nil {
+				continue
+			}
+
+			err := h.messageService.ToggleReaction(userID, r.MessageID, r.Reaction)
+			if err != nil {
+				continue
+			}
+
+			memberIDs, err := h.messageService.GetMembersByMessage(r.MessageID)
+			if err != nil {
+				continue
+			}
+
+			response, _ := json.Marshal(gin.H{
+				"type":       "reaction",
+				"message_id": r.MessageID,
+				"user_id":    userID,
+				"reaction":   r.Reaction,
+			})
+
+			h.hub.SendToUsers(memberIDs, response)
+
+    case "edit":
+			var body struct {
+				MessageID uuid.UUID `json:"message_id"`
+				Content   string    `json:"content"`
+			}
+
+			if err := json.Unmarshal(msgBytes, &body); err != nil {
+				continue
+			}
+
+			response, members, err := h.messageService.EditMessageRealtime(userID, body.MessageID, body.Content)
+			if err != nil {
+				continue
+			}
+
+			h.hub.SendToUsers(members, response)
+
+    case "delete":
+			var body struct {
+				MessageID uuid.UUID `json:"message_id"`
+			}
+
+			if err := json.Unmarshal(msgBytes, &body); err != nil {
+				continue
+			}
+
+			response, members, err := h.messageService.DeleteMessageRealtime(userID, body.MessageID)
+			if err != nil {
+				continue
+			}
+
+			h.hub.SendToUsers(members, response)
 		}
 	}
 
