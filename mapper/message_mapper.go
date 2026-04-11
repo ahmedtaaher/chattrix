@@ -6,7 +6,16 @@ import (
 )
 
 func ToMessageResponse(msg *models.Message) dto.MessageResponse {
-	var attachments []dto.AttachmentResponse
+  return ToMessageResponseWithDepth(msg, 1)
+}
+
+func ToMessageResponseWithDepth(msg *models.Message, depth int) dto.MessageResponse {
+	var content *string = msg.Content
+  if msg.IsDeleted {
+    content = nil
+  }
+  
+  var attachments []dto.AttachmentResponse
 	for _, a := range msg.Attachments {
 		attachments = append(attachments, dto.AttachmentResponse{
 			FileURL:  a.FileURL,
@@ -28,16 +37,23 @@ func ToMessageResponse(msg *models.Message) dto.MessageResponse {
 		})
 	}
 
+  var reply *dto.MessageResponse
+  if depth > 0 && msg.ReplyToMessage != nil {
+    r := ToMessageResponseWithDepth(msg.ReplyToMessage, depth-1)
+    reply = &r
+  }
+
 	return dto.MessageResponse{
 		ID:          msg.ID,
 		ChatID:      msg.ChatID,
 		SenderID:    msg.SenderID,
 		Type:        msg.Type,
-		Content:     msg.Content,
+		Content:     content,
 		SentAt:      msg.SentAt,
 		EditedAt:    msg.EditedAt,
 		IsDeleted:   msg.IsDeleted,
 		Attachments: attachments,
 		Reactions:   reactions,
+    ReplyTo:     reply,
 	}
 }

@@ -31,8 +31,20 @@ func (m *MessageRepository) UpdateStatus(messageID, userID uuid.UUID, status str
     Update("status", status).Error
 }
 
-func (m *MessageRepository) MarkMessagesAsSeen(chatID, userID uuid.UUID) error {
-	return m.db.Exec(`
+func (m *MessageRepository) MarkMessagesAsSeen(chatID, userID uuid.UUID) (*uuid.UUID, error) {
+	var lastSeenMessageID uuid.UUID
+  err := m.db.Raw(`
+    SELECT id FROM messages
+    WHERE chat_id = ?
+    ORDER BY sent_at DESC
+    LIMIT 1
+  `, chatID).Scan(&lastSeenMessageID).Error
+
+  if err != nil {
+    return nil, err
+  }
+
+  err = m.db.Exec(`
 		UPDATE message_status ms
 		SET status = 'seen', updated_at = NOW()
 		FROM messages m
@@ -41,6 +53,12 @@ func (m *MessageRepository) MarkMessagesAsSeen(chatID, userID uuid.UUID) error {
 		AND ms.user_id = ?
 		AND ms.status != 'seen'
 	`, chatID, userID).Error
+
+  if err != nil {
+    return nil, err
+  }
+
+  return &lastSeenMessageID, nil
 }
 
 func (m *MessageRepository) GetUnreadMessages(userID uuid.UUID) ([]models.Message, error) {
@@ -149,4 +167,18 @@ func (m *MessageRepository) GetMessageWithFullData(messageID uuid.UUID) (*models
 		First(&msg, "id = ?", messageID).Error
 
 	return &msg, err
+}
+
+func (r *MessageRepository) ReactionExists(messageID, userID uuid.UUID, reaction string) (bool, error) {
+	var count int64
+
+	err := r.db.Model(&models.MessageReaction{}).
+		Where("message_id = ? AND user_id = ? AND reaction = ?", messageID, userID, reaction).
+		Count(&count).Error
+
+	if err != nil {
+		return false, err
+	}
+
+	return count > 0, nil
 }

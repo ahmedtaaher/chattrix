@@ -21,3 +21,8 @@ type WSReaction struct {
 	MessageID uuid.UUID `json:"message_id"`
 	Reaction  string    `json:"reaction"`
 }
+
+type WSEdit struct {
+  MessageID uuid.UUID `json:"message_id"`
+  Content   string    `json:"content"`
+}

@@ -98,15 +98,18 @@ func (s *MessageService) HandleSendMessage(userID uuid.UUID, wsMsg dto.WSMessage
 	onlineMap := make(map[uuid.UUID]bool)
 
 	for _, uid := range memberIDs {
-		status := "sent"
-
-		if uid != userID && s.onlineChecker.IsOnline(uid) {
-			status = "delivered"
-			onlineMap[uid] = true
-		}
+		var status string
 
     if uid == userID {
+      status = "sent"
       onlineMap[uid] = true
+    } else {
+      if s.onlineChecker.IsOnline(uid) {
+        status = "delivered"
+        onlineMap[uid] = true
+      } else {
+        status = "sent"
+      }
     }
 
 		err := s.messageRepo.CreateStatus(&models.MessageStatus{
@@ -121,6 +124,11 @@ func (s *MessageService) HandleSendMessage(userID uuid.UUID, wsMsg dto.WSMessage
 		}
 	}
 
+  memberSet := make(map[uuid.UUID]bool)
+  for _, id := range memberIDs {
+    memberSet[id] = true
+  }
+
   if wsMsg.Content != "" {
     usernames := utils.ExtractMentions(wsMsg.Content)
     for _, username := range usernames {
@@ -128,8 +136,10 @@ func (s *MessageService) HandleSendMessage(userID uuid.UUID, wsMsg dto.WSMessage
       if err != nil {
         continue
       }
-      
-      onlineMap[user.ID] = true
+
+      if memberSet[user.ID] {
+        onlineMap[user.ID] = true
+      }
     }
   }
 
@@ -155,10 +165,11 @@ func (s *MessageService) HandleSendMessage(userID uuid.UUID, wsMsg dto.WSMessage
 }
 
 func (s *MessageService) HandleSeen(userID uuid.UUID, chatID uuid.UUID) ([]byte, []uuid.UUID, error) {
-	if err := s.messageRepo.MarkMessagesAsSeen(chatID, userID); err != nil {
-		return nil, nil, err
-	}
-
+	lastMsgID, err := s.messageRepo.MarkMessagesAsSeen(chatID, userID)
+  if err != nil {
+    return nil, nil, err
+  }
+  
 	memberIDs, err := s.chatRepo.GetChatMembers(chatID)
 	if err != nil {
 		return nil, nil, err
@@ -168,6 +179,7 @@ func (s *MessageService) HandleSeen(userID uuid.UUID, chatID uuid.UUID) ([]byte,
 		"type":    "seen",
 		"user_id": userID,
 		"chat_id": chatID,
+    "last_seen_message_id": lastMsgID,
 	})
 
 	var receivers []uuid.UUID
@@ -263,10 +275,14 @@ func (s *MessageService) ToggleReaction(userID, messageID uuid.UUID, reaction st
 		return errors.New("message not found")
 	}
 
-	err = s.messageRepo.RemoveReaction(messageID, userID, reaction)
-	if err == nil {
-		return nil 
-	}
+  exists, err := s.messageRepo.ReactionExists(messageID, userID, reaction)
+  if err != nil {
+    return err
+  }
+
+  if exists {
+    return s.messageRepo.RemoveReaction(messageID, userID, reaction)
+  }
 
 	return s.messageRepo.AddReaction(&models.MessageReaction{
 		MessageID: messageID,
@@ -290,31 +306,96 @@ func (s *MessageService) EditMessageRealtime(userID, messageID uuid.UUID, conten
 		return nil, nil, err
 	}
 
-	msg, _ := s.messageRepo.GetMessageByID(messageID)
-	members, _ := s.chatRepo.GetChatMembers(msg.ChatID)
+	msg, err := s.messageRepo.GetMessageWithFullData(messageID)
+  if err != nil {
+    return nil, nil, err
+  }
+
+	memberIDs, err := s.chatRepo.GetChatMembers(msg.ChatID)
+  if err != nil {
+    return nil, nil, err
+  }
+
+  var receivers []uuid.UUID
+  for _, uid := range memberIDs {
+    if uid != userID && s.onlineChecker.IsOnline(uid) {
+      receivers = append(receivers, uid)
+    }
+  }
+
+  responseDTO := mapper.ToMessageResponse(msg)
 
 	response, _ := json.Marshal(map[string]interface{}{
 		"type":       "edit",
-		"message_id": messageID,
-		"content":    content,
+		"message": responseDTO,
 	})
 
-	return response, members, nil
+	return response, receivers, nil
 }
 
 func (s *MessageService) DeleteMessageRealtime(userID, messageID uuid.UUID) ([]byte, []uuid.UUID, error) {
-	err := s.DeleteMessage(userID, messageID)
+  msg, err := s.messageRepo.GetMessageByID(messageID)
+	if err != nil {
+    return nil, nil, err
+  }
+
+  if err := s.DeleteMessage(userID, messageID); err != nil {
+		return nil, nil, err
+	}
+
+	memberIDs, err := s.chatRepo.GetChatMembers(msg.ChatID)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	msg, _ := s.messageRepo.GetMessageByID(messageID)
-	members, _ := s.chatRepo.GetChatMembers(msg.ChatID)
+  var receivers []uuid.UUID
+  for _, uid := range memberIDs {
+    if uid != userID && s.onlineChecker.IsOnline(uid) {
+      receivers = append(receivers, uid)
+    }
+  }
+
+  updatedMsg, err := s.messageRepo.GetMessageWithFullData(messageID)
+  if err != nil {
+    return nil, nil, err
+  }
+
+  responseDTO := mapper.ToMessageResponse(updatedMsg)
 
 	response, _ := json.Marshal(map[string]interface{}{
 		"type":       "delete",
-		"message_id": messageID,
+		"message": responseDTO,
 	})
 
-	return response, members, nil
+	return response, receivers, nil
+}
+
+func (s *MessageService) HandleReactionRealtime(userID uuid.UUID, dto dto.WSReaction) ([]byte, []uuid.UUID, error) {
+	err := s.ToggleReaction(userID, dto.MessageID, dto.Reaction)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	msg, err := s.messageRepo.GetMessageWithFullData(dto.MessageID)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	memberIDs, _ := s.chatRepo.GetChatMembers(msg.ChatID)
+
+	var receivers []uuid.UUID
+	for _, uid := range memberIDs {
+		if s.onlineChecker.IsOnline(uid) {
+			receivers = append(receivers, uid)
+		}
+	}
+
+	responseDTO := mapper.ToMessageResponse(msg)
+
+	response, _ := json.Marshal(map[string]interface{}{
+		"type":    "reaction",
+		"message": responseDTO,
+	})
+
+	return response, receivers, nil
 }

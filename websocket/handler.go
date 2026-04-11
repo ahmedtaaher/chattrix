@@ -144,7 +144,7 @@ func (h *WSHandler) HandleConnection(context *gin.Context) {
 				continue
 			}
 
-			err := h.messageService.ToggleReaction(userID, r.MessageID, r.Reaction)
+			_, _, err := h.messageService.HandleReactionRealtime(userID, r)
 			if err != nil {
 				continue
 			}
