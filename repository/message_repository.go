@@ -169,10 +169,10 @@ func (m *MessageRepository) GetMessageWithFullData(messageID uuid.UUID) (*models
 	return &msg, err
 }
 
-func (r *MessageRepository) ReactionExists(messageID, userID uuid.UUID, reaction string) (bool, error) {
+func (m *MessageRepository) ReactionExists(messageID, userID uuid.UUID, reaction string) (bool, error) {
 	var count int64
 
-	err := r.db.Model(&models.MessageReaction{}).
+	err := m.db.Model(&models.MessageReaction{}).
 		Where("message_id = ? AND user_id = ? AND reaction = ?", messageID, userID, reaction).
 		Count(&count).Error
 
@@ -181,4 +181,24 @@ func (r *MessageRepository) ReactionExists(messageID, userID uuid.UUID, reaction
 	}
 
 	return count > 0, nil
+}
+
+func (m *MessageRepository) GetMessagesByChat(chatID uuid.UUID, before *time.Time, limit int) ([]models.Message, error) {
+  query := m.db.
+    Preload("Attachments").
+    Preload("Reactions").
+    Preload("ReplyToMessage").
+    Preload("ForwardFromMessage").
+    Where("chat_id = ?", chatID).
+    Order("sent_at DESC").
+    Limit(limit)
+
+  if before != nil {
+    query = query.Where("sent_at < ?", *before)
+  }
+
+  var messages []models.Message
+  err := query.Find(&messages).Error
+
+  return messages, err
 }

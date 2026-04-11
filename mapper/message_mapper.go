@@ -43,6 +43,12 @@ func ToMessageResponseWithDepth(msg *models.Message, depth int) dto.MessageRespo
     reply = &r
   }
 
+  var forward *dto.MessageResponse
+  if depth > 0 && msg.ForwardFromMessage != nil {
+    f := ToMessageResponseWithDepth(msg.ForwardFromMessage, depth-1)
+    reply = &f
+  }
+
 	return dto.MessageResponse{
 		ID:          msg.ID,
 		ChatID:      msg.ChatID,
@@ -55,5 +61,6 @@ func ToMessageResponseWithDepth(msg *models.Message, depth int) dto.MessageRespo
 		Attachments: attachments,
 		Reactions:   reactions,
     ReplyTo:     reply,
+    ForwardFrom: forward,
 	}
 }

@@ -49,7 +49,7 @@ func SetupRoutes(router *gin.Engine, jwtService *utils.JWTService) {
 
       messages := protected.Group("/messages")
       {
-	      messages.GET("/:chat_id", messageHandler.GetMessages)
+	      messages.GET("/:chat_id", messageHandler.GetPaginatedMessages)
 	      messages.PUT("/:id", messageHandler.EditMessage)
 	      messages.DELETE("/:id", messageHandler.DeleteMessage)
       }

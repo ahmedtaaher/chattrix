@@ -13,6 +13,7 @@ type WSMessage struct {
 	ChatID     uuid.UUID `json:"chat_id"`
   Content    string `json:"content,omitempty"`
   ReplyToID  *uuid.UUID `json:"reply_to_id,omitempty"`
+  ForwardFromMessageID *uuid.UUID `json:"forward_from_message_id,omitempty"`
   Files      []WSAttachment `json:"files,omitempty"`
 }
 

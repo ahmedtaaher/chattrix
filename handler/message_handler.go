@@ -4,6 +4,7 @@ import (
 	"chattrix/service"
 	"chattrix/utils"
 	"net/http"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -69,4 +70,32 @@ func (h *MessageHandler) DeleteMessage(context *gin.Context) {
 	}
 
 	utils.SuccessResponse(context, http.StatusOK, "message deleted", nil)
+}
+
+func (h *MessageHandler) GetPaginatedMessages(context *gin.Context) {
+  chatID, err := uuid.Parse(context.Param("chat_id"))
+  if err != nil {
+    context.JSON(400, gin.H{"error": "invalid chat id"})
+      return
+    }
+
+  limit := 30
+
+  beforeStr := context.Query("before")
+  var before *time.Time
+
+  if beforeStr != "" {
+    t, err := time.Parse(time.RFC3339, beforeStr)
+    if err == nil {
+      before = &t
+    }
+  }
+
+  msgs, err := h.messageService.GetPaginatedMessages(chatID, before, limit)
+  if err != nil {
+    context.JSON(500, gin.H{"error": err.Error()})
+    return
+  }
+
+  context.JSON(200, msgs)
 }

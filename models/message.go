@@ -13,10 +13,12 @@ type Message struct {
 	Type             string     `gorm:"size:20;not null"`
 	Content          *string    
 	ReplyToMessageID *uuid.UUID 
+  ForwardFromMessageID *uuid.UUID
 	SentAt           time.Time  `gorm:"autoCreateTime"`
 	EditedAt         *time.Time
 	IsDeleted        bool `gorm:"default:false"`
   Attachments      []Attachment `gorm:"foreignKey:MessageID"`
   Reactions        []MessageReaction   `gorm:"foreignKey:MessageID"`
   ReplyToMessage   *Message `gorm:"foreignKey:ReplyToMessageID"`
+  ForwardFromMessage *Message `gorm:"foreignKey:ForwardFromMessageID"`
 }

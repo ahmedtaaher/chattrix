@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"log"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -34,7 +35,10 @@ func NewMessageService(messageRepo *repository.MessageRepository, chatRepo *repo
 }
 
 func (s *MessageService) HandleSendMessage(userID uuid.UUID, wsMsg dto.WSMessage) ([]byte, []uuid.UUID, error) {
-	if wsMsg.Content == "" && len(wsMsg.Files) == 0 {
+	var forwardContent *string
+  var forwardFiles []models.Attachment
+  
+  if wsMsg.Content == "" && len(wsMsg.Files) == 0 {
 		return nil, nil, errors.New("message can not be empty")
 	}
 
@@ -65,13 +69,28 @@ func (s *MessageService) HandleSendMessage(userID uuid.UUID, wsMsg dto.WSMessage
     }
 	}
 
+  if wsMsg.ForwardFromMessageID != nil {
+    origMsg, err := s.messageRepo.GetMessageWithFullData(*wsMsg.ForwardFromMessageID)
+    if err != nil {
+      return nil, nil, errors.New("invalid forward message")
+    }
+
+    forwardContent = origMsg.Content
+    forwardFiles = origMsg.Attachments
+  }
+
 	message := models.Message{
 		ChatID:           wsMsg.ChatID,
 		SenderID:         userID,
 		Type:             msgType,
 		Content:          content,
 		ReplyToMessageID: wsMsg.ReplyToID,
+    ForwardFromMessageID: wsMsg.ForwardFromMessageID,
 	}
+
+  if wsMsg.ForwardFromMessageID != nil {
+    message.Content = forwardContent
+  }
 
 	if err := s.messageRepo.CreateMessage(&message); err != nil {
 		return nil, nil, err
@@ -89,6 +108,19 @@ func (s *MessageService) HandleSendMessage(userID uuid.UUID, wsMsg dto.WSMessage
 			return nil, nil, err
 		}
 	}
+
+  for _, f := range forwardFiles {
+    att := models.Attachment {
+      MessageID: message.ID,
+      FileURL: f.FileURL,
+      FileType: f.FileType,
+      FileSize: f.FileSize,
+    }
+
+    if err := s.messageRepo.CreateAttachment(&att); err != nil {
+      return nil, nil, err
+    }
+  }
 
 	memberIDs, err := s.chatRepo.GetChatMembers(wsMsg.ChatID)
 	if err != nil {
@@ -398,4 +430,19 @@ func (s *MessageService) HandleReactionRealtime(userID uuid.UUID, dto dto.WSReac
 	})
 
 	return response, receivers, nil
+}
+
+func (s *MessageService) GetPaginatedMessages(chatID uuid.UUID, before *time.Time, limit int) ([]dto.MessageResponse, error) {
+  msgs, err := s.messageRepo.GetMessagesByChat(chatID, before, limit)
+  if err != nil {
+    return nil, err
+  }
+
+  var responses []dto.MessageResponse
+
+  for _, m := range msgs {
+    responses = append(responses, mapper.ToMessageResponse(&m))
+  }
+
+  return responses, nil
 }

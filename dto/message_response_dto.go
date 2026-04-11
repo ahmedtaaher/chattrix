@@ -31,4 +31,5 @@ type MessageResponse struct {
 	Reactions   []ReactionResponse   `json:"reactions"`
 
 	ReplyTo *MessageResponse `json:"reply_to,omitempty"`
+  ForwardFrom *MessageResponse `json:"forward_from,omitempty"`
 }

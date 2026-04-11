@@ -144,24 +144,12 @@ func (h *WSHandler) HandleConnection(context *gin.Context) {
 				continue
 			}
 
-			_, _, err := h.messageService.HandleReactionRealtime(userID, r)
+			response, userIDs, err := h.messageService.HandleReactionRealtime(userID, r)
 			if err != nil {
 				continue
 			}
 
-			memberIDs, err := h.messageService.GetMembersByMessage(r.MessageID)
-			if err != nil {
-				continue
-			}
-
-			response, _ := json.Marshal(gin.H{
-				"type":       "reaction",
-				"message_id": r.MessageID,
-				"user_id":    userID,
-				"reaction":   r.Reaction,
-			})
-
-			h.hub.SendToUsers(memberIDs, response)
+			h.hub.SendToUsers(userIDs, response)
 
     case "edit":
 			var body struct {
