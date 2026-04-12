@@ -59,3 +59,15 @@ func (u *UserRepository) SetOffline(userID uuid.UUID) error {
 			"last_seen": now,
 		}).Error
 }
+
+func (u *UserRepository) SearchUsers(query string) ([]models.User, error) {
+	var users []models.User
+
+	err := u.db.
+		Where("username ILIKE ? OR email ILIKE ?", "%"+query+"%", "%"+query+"%").
+		Limit(20).
+		Find(&users).Error
+
+	return users, err
+}
+

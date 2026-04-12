@@ -213,3 +213,16 @@ func (h *AuthHandler) UploadAvatar(context *gin.Context) {
 		"avatar_url": fullURL,
 	})
 }
+
+func (h *AuthHandler) SearchUsers(context *gin.Context) {
+	query := context.Query("q")
+
+	users, err := h.service.SearchUsers(query)
+	if err != nil {
+		utils.ErrorResponse(context, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	utils.SuccessResponse(context, http.StatusOK, "users found", users)
+}
+

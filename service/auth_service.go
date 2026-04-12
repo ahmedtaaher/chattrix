@@ -137,3 +137,12 @@ func (a *AuthService) SetOnline(userID uuid.UUID) error {
 func (a *AuthService) SetOffline(userID uuid.UUID) error {
 	return a.repo.SetOffline(userID)
 }
+
+func (s *AuthService) SearchUsers(query string) ([]models.User, error) {
+	if query == "" {
+		return nil, errors.New("query required")
+	}
+
+	return s.repo.SearchUsers(query)
+}
+

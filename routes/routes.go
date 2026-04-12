@@ -46,6 +46,7 @@ func SetupRoutes(router *gin.Engine, jwtService *utils.JWTService) {
       protected.PUT("/profile", authHandler.UpdateProfile)
       protected.POST("/change-password", authHandler.ChangePassword)
       protected.POST("/upload-avatar", authHandler.UploadAvatar)
+      protected.GET("/search/users", authHandler.SearchUsers)
 
       messages := protected.Group("/messages")
       {
