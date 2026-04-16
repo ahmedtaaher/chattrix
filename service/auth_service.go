@@ -146,3 +146,6 @@ func (s *AuthService) SearchUsers(query string) ([]models.User, error) {
 	return s.repo.SearchUsers(query)
 }
 
+func (s *AuthService) IsOnline(userID uuid.UUID) bool {
+	return s.repo.IsUserOnline(userID)
+}

@@ -202,3 +202,34 @@ func (m *MessageRepository) GetMessagesByChat(chatID uuid.UUID, before *time.Tim
 
   return messages, err
 }
+
+func (m *MessageRepository) GetUnreadCountByChat(userID uuid.UUID) (map[uuid.UUID]int, error) {
+	rows, err := m.db.Raw(`
+		SELECT m.chat_id, COUNT(*) as unread_count
+		FROM message_status ms
+		JOIN messages m ON m.id = ms.message_id
+		WHERE ms.user_id = ?
+		AND ms.status != 'seen'
+		GROUP BY m.chat_id
+	`, userID).Rows()
+
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	result := make(map[uuid.UUID]int)
+
+	for rows.Next() {
+		var chatID uuid.UUID
+		var count int
+
+		if err := rows.Scan(&chatID, &count); err != nil {
+			return nil, err
+		}
+
+		result[chatID] = count
+	}
+
+	return result, nil
+}

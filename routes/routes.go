@@ -18,18 +18,21 @@ func SetupRoutes(router *gin.Engine, jwtService *utils.JWTService) {
   userRepo := repository.NewUserRepository(db)
   messageRepo := repository.NewMessageRepository(db)
   chatRepo := repository.NewChatRepository(db)
+  notificationRepo := repository.NewNotificationRepository(db)
   
   hub := websocket.NewHub()
   
   authService := service.NewAuthService(userRepo, jwtService)
-  messageService := service.NewMessageService(messageRepo, chatRepo, userRepo, hub)
+  notificationService := service.NewNotificationService(notificationRepo, authService, hub)
+  messageService := service.NewMessageService(messageRepo, chatRepo, userRepo, notificationService, hub)
   chatService := service.NewChatService(chatRepo)
   
   authHandler := handler.NewAuthHandler(authService)
   messageHandler := handler.NewMessageHandler(messageService)
   chatHandler := handler.NewChatHandler(chatService)
+  notificationHandler := handler.NewNotificationHandler(notificationService)
   
-  wsHandler := websocket.NewWSHandler(hub, authService, jwtService, messageService)
+  wsHandler := websocket.NewWSHandler(hub, authService, jwtService, messageService, notificationService)
   
   v1 := router.Group("/chattrix/api")
   {
@@ -53,6 +56,7 @@ func SetupRoutes(router *gin.Engine, jwtService *utils.JWTService) {
 	      messages.GET("/:chat_id", messageHandler.GetPaginatedMessages)
 	      messages.PUT("/:id", messageHandler.EditMessage)
 	      messages.DELETE("/:id", messageHandler.DeleteMessage)
+        messages.GET("/unread", messageHandler.GetUnreadCounts)
       }
 
       chats := protected.Group("/chats")
@@ -70,6 +74,15 @@ func SetupRoutes(router *gin.Engine, jwtService *utils.JWTService) {
         chats.POST("/:id/invite", chatHandler.CreateInvite)
       }
 
+      notifications := protected.Group("/notifications")
+      {
+        notifications.GET("/notifications", notificationHandler.GetNotifications)
+        notifications.PUT("/notifications/read", notificationHandler.MarkAllAsRead)
+        notifications.PUT("/notifications/:id/read", notificationHandler.MarkOneAsRead)
+        notifications.GET("/notifications/unread-count", notificationHandler.GetUnreadCount)
+        notifications.DELETE("/:id", notificationHandler.DeleteNotification)
+      }
+      
       protected.POST("/join", chatHandler.JoinByInvite)
     }
   }

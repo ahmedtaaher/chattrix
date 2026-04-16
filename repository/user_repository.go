@@ -71,3 +71,13 @@ func (u *UserRepository) SearchUsers(query string) ([]models.User, error) {
 	return users, err
 }
 
+func (r *UserRepository) IsUserOnline(userID uuid.UUID) bool {
+	var isOnline bool
+
+	r.db.Model(&models.User{}).
+		Select("is_online").
+		Where("id = ?", userID).
+		Scan(&isOnline)
+
+	return isOnline
+}

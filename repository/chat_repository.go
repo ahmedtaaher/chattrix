@@ -130,7 +130,7 @@ func (c *ChatRepository) SetPinned(chatID, userID uuid.UUID, pinned bool) error 
 		Update("is_pinned", pinned).Error
 }
 
-func (c *ChatRepository) SetMuted(chatID, userID uuid.UUID, muted bool) error {
+func (c *ChatRepository) SetMuted(userID, chatID uuid.UUID, muted bool) error {
 	return c.db.Model(&models.ChatMember{}).
 		Where("chat_id = ? AND user_id = ?", chatID, userID).
 		Update("is_muted", muted).Error
@@ -217,4 +217,20 @@ func (c *ChatRepository) GetInviteByCode(code string) (*models.ChatInvite, error
 	}
 
 	return &invite, nil
+}
+
+func (c *ChatRepository) IsMuted(chatID, userID uuid.UUID) (bool, error) {
+	var muted bool
+
+	err := c.db.
+		Model(&models.ChatMember{}).
+		Select("is_muted").
+		Where("chat_id = ? AND user_id = ?", chatID, userID).
+		Scan(&muted).Error
+
+	if err != nil {
+		return false, err
+	}
+
+	return muted, nil
 }

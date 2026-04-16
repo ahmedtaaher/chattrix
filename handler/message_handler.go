@@ -93,9 +93,21 @@ func (h *MessageHandler) GetPaginatedMessages(context *gin.Context) {
 
   msgs, err := h.messageService.GetPaginatedMessages(chatID, before, limit)
   if err != nil {
-    context.JSON(500, gin.H{"error": err.Error()})
+    utils.ErrorResponse(context, http.StatusBadRequest, err.Error())
     return
   }
 
-  context.JSON(200, msgs)
+  utils.SuccessResponse(context, http.StatusOK, "messages retrieved", msgs)
+}
+
+func (h *MessageHandler) GetUnreadCounts(context *gin.Context) {
+	userID := context.MustGet("user_id").(uuid.UUID)
+
+	data, err := h.messageService.GetUnreadCounts(userID)
+	if err != nil {
+		utils.ErrorResponse(context, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	utils.SuccessResponse(context, http.StatusOK, "counts retrieved", data)
 }

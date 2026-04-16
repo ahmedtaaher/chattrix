@@ -136,7 +136,11 @@ func (h *ChatHandler) PinChat(context *gin.Context) {
 
 func (h *ChatHandler) MuteChat(context *gin.Context) {
 
-	chatID, _ := uuid.Parse(context.Param("id"))
+	chatID, err := uuid.Parse(context.Param("id"))
+  if err != nil {
+    utils.ErrorResponse(context, http.StatusBadRequest, "invalid chat id")
+    return
+  }
 
 	var body struct {
 		IsMuted bool `json:"is_muted"`
@@ -150,13 +154,15 @@ func (h *ChatHandler) MuteChat(context *gin.Context) {
 	userVal, _ := context.Get("user_id")
 	userID := userVal.(uuid.UUID)
 
-	err := h.chatService.MuteChat(userID, chatID, body.IsMuted)
-	if err != nil {
+	if err := h.chatService.MuteChat(userID, chatID, body.IsMuted); err != nil {
 		utils.ErrorResponse(context, http.StatusBadRequest, err.Error())
 		return
 	}
 
-	utils.SuccessResponse(context, http.StatusOK, "chat updated", nil)
+	utils.SuccessResponse(context, http.StatusOK, "success", gin.H{
+    "chat_id": chatID,
+    "is_muted": body.IsMuted,
+  })
 }
 
 func (h *ChatHandler) ChangeUserRole(context *gin.Context) {

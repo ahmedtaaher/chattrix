@@ -21,17 +21,19 @@ type WSHandler struct {
 	}
 	jwtService *utils.JWTService
 	messageService *service.MessageService
+	notificationService *service.NotificationService
 }
 
 func NewWSHandler(hub *Hub, authService interface {
 	SetOnline(userID uuid.UUID) error
 	SetOffline(userID uuid.UUID) error
-}, jwtService *utils.JWTService, messageService *service.MessageService) *WSHandler {
+}, jwtService *utils.JWTService, messageService *service.MessageService, notificationService *service.NotificationService) *WSHandler {
 	return &WSHandler{
 		hub:         hub,
 		authService: authService,
 		jwtService:  jwtService,
 		messageService: messageService,
+		notificationService: notificationService,
 	}
 }
 
@@ -183,6 +185,19 @@ func (h *WSHandler) HandleConnection(context *gin.Context) {
 			}
 
 			h.hub.SendToUsers(members, response)
+
+		case "get_notifications":
+			notifs, err := h.notificationService.GetUserNotifications(userID)
+			if err != nil {
+				continue
+			}
+
+			response, _ := json.Marshal(gin.H{
+				"type": "notifications",
+				"data": notifs,
+			})
+
+			h.hub.SendToUsers([]uuid.UUID{userID}, response)
 		}
 	}
 

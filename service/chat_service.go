@@ -114,7 +114,7 @@ func (s *ChatService) MuteChat(userID, chatID uuid.UUID, muted bool) error {
 		return errors.New("not authorized")
 	}
 
-	return s.chatRepo.SetMuted(chatID, userID, muted)
+	return s.chatRepo.SetMuted(userID, chatID, muted)
 }
 
 func (s *ChatService) isAdmin(chatID, userID uuid.UUID) (bool, error) {

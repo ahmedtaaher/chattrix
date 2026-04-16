@@ -8,7 +8,6 @@ import (
 	"chattrix/utils"
 	"encoding/json"
 	"errors"
-	"log"
 	"time"
 
 	"github.com/google/uuid"
@@ -22,22 +21,21 @@ type MessageService struct {
 	messageRepo   *repository.MessageRepository
 	chatRepo      *repository.ChatRepository
   userRepo      *repository.UserRepository
+  notificationService *NotificationService
 	onlineChecker OnlineChecker
 }
 
-func NewMessageService(messageRepo *repository.MessageRepository, chatRepo *repository.ChatRepository, userRepo *repository.UserRepository, onlineChecker OnlineChecker) *MessageService {
+func NewMessageService(messageRepo *repository.MessageRepository, chatRepo *repository.ChatRepository, userRepo *repository.UserRepository, notificationService *NotificationService, onlineChecker OnlineChecker) *MessageService {
 	return &MessageService{
 		messageRepo:   messageRepo,
 		chatRepo:      chatRepo,
 		userRepo:      userRepo,
+		notificationService: notificationService,
 		onlineChecker: onlineChecker,
 	}
 }
 
 func (s *MessageService) HandleSendMessage(userID uuid.UUID, wsMsg dto.WSMessage) ([]byte, []uuid.UUID, error) {
-	var forwardContent *string
-  var forwardFiles []models.Attachment
-  
   if wsMsg.Content == "" && len(wsMsg.Files) == 0 {
 		return nil, nil, errors.New("message can not be empty")
 	}
@@ -69,13 +67,19 @@ func (s *MessageService) HandleSendMessage(userID uuid.UUID, wsMsg dto.WSMessage
     }
 	}
 
+  var forwardFiles []models.Attachment
+
   if wsMsg.ForwardFromMessageID != nil {
     origMsg, err := s.messageRepo.GetMessageWithFullData(*wsMsg.ForwardFromMessageID)
     if err != nil {
       return nil, nil, errors.New("invalid forward message")
     }
 
-    forwardContent = origMsg.Content
+    if origMsg.ChatID != wsMsg.ChatID {
+      return nil, nil, errors.New("cannot forward from another chat")
+    }
+
+    content = origMsg.Content
     forwardFiles = origMsg.Attachments
   }
 
@@ -88,13 +92,9 @@ func (s *MessageService) HandleSendMessage(userID uuid.UUID, wsMsg dto.WSMessage
     ForwardFromMessageID: wsMsg.ForwardFromMessageID,
 	}
 
-  if wsMsg.ForwardFromMessageID != nil {
-    message.Content = forwardContent
+  if err := s.messageRepo.CreateMessage(&message); err != nil {
+    return nil, nil, err
   }
-
-	if err := s.messageRepo.CreateMessage(&message); err != nil {
-		return nil, nil, err
-	}
 
 	for _, f := range wsMsg.Files {
 		att := models.Attachment{
@@ -127,53 +127,85 @@ func (s *MessageService) HandleSendMessage(userID uuid.UUID, wsMsg dto.WSMessage
 		return nil, nil, err
 	}
 
-	onlineMap := make(map[uuid.UUID]bool)
-
-	for _, uid := range memberIDs {
-		var status string
-
-    if uid == userID {
-      status = "sent"
-      onlineMap[uid] = true
-    } else {
-      if s.onlineChecker.IsOnline(uid) {
-        status = "delivered"
-        onlineMap[uid] = true
-      } else {
-        status = "sent"
-      }
-    }
-
-		err := s.messageRepo.CreateStatus(&models.MessageStatus{
-			MessageID: message.ID,
-			UserID:    uid,
-			Status:    status,
-		})
-
-		if err != nil {
-			log.Println("create status error:", err)
-			return nil, nil, err
-		}
-	}
-
   memberSet := make(map[uuid.UUID]bool)
   for _, id := range memberIDs {
     memberSet[id] = true
   }
 
-  if wsMsg.Content != "" {
-    usernames := utils.ExtractMentions(wsMsg.Content)
+  mentionedUsers := make(map[uuid.UUID]bool)
+
+  if content != nil {
+    usernames := utils.ExtractMentions(*content)
+
     for _, username := range usernames {
       user, err := s.userRepo.GetByUsername(username)
       if err != nil {
         continue
       }
 
-      if memberSet[user.ID] {
-        onlineMap[user.ID] = true
+      if user.ID != userID && memberSet[user.ID] {
+        mentionedUsers[user.ID] = true
       }
     }
   }
+
+  onlineMap := make(map[uuid.UUID]bool)
+
+  for _, uid := range memberIDs {
+    status := "sent"
+    if uid != userID && s.onlineChecker.IsOnline(uid) {
+      status = "delivered"
+      onlineMap[uid] = true
+    } 
+
+    if uid == userID {
+      onlineMap[uid] = true
+    }
+
+    err := s.messageRepo.CreateStatus(&models.MessageStatus{
+      MessageID: message.ID,
+      UserID:    uid,
+      Status:    status,
+    })
+
+    if err != nil {
+      return nil, nil, err
+    }
+  }
+
+	for _, uid := range memberIDs {
+    if uid == userID {
+      continue
+    }
+
+    if mentionedUsers[uid] {
+      continue
+    }
+
+    isMuted, err := s.chatRepo.IsMuted(wsMsg.ChatID, uid)
+    if err != nil || isMuted{
+      continue
+    }
+    
+    _ = s.notificationService.CreateNotification(uid, "message", &message.ID)
+
+    if s.onlineChecker.IsOnline(uid) {
+      unreadMsg, _ := json.Marshal(map[string]interface{}{
+        "type": "unread_update",
+        "chat_id": wsMsg.ChatID,
+      })
+      s.notificationService.notifier.SendToUsers([]uuid.UUID{uid}, unreadMsg)
+    }
+	}
+
+  for uid := range mentionedUsers {
+		isMuted, err := s.chatRepo.IsMuted(wsMsg.ChatID, uid)
+		if err != nil || isMuted {
+			continue
+		}
+
+		_ = s.notificationService.CreateNotification(uid, "mention", &message.ID)
+	}
 
   fullMsg, err := s.messageRepo.GetMessageWithFullData(message.ID)
   if err != nil {
@@ -192,12 +224,11 @@ func (s *MessageService) HandleSendMessage(userID uuid.UUID, wsMsg dto.WSMessage
 		onlineUsers = append(onlineUsers, uid)
 	}
 
-
 	return response, onlineUsers, nil
 }
 
 func (s *MessageService) HandleSeen(userID uuid.UUID, chatID uuid.UUID) ([]byte, []uuid.UUID, error) {
-	lastMsgID, err := s.messageRepo.MarkMessagesAsSeen(chatID, userID)
+	_, err := s.messageRepo.MarkMessagesAsSeen(chatID, userID)
   if err != nil {
     return nil, nil, err
   }
@@ -211,7 +242,6 @@ func (s *MessageService) HandleSeen(userID uuid.UUID, chatID uuid.UUID) ([]byte,
 		"type":    "seen",
 		"user_id": userID,
 		"chat_id": chatID,
-    "last_seen_message_id": lastMsgID,
 	})
 
 	var receivers []uuid.UUID
@@ -219,6 +249,15 @@ func (s *MessageService) HandleSeen(userID uuid.UUID, chatID uuid.UUID) ([]byte,
 		if uid != userID && s.onlineChecker.IsOnline(uid) {
 			receivers = append(receivers, uid)
 		}
+	}
+
+  if s.onlineChecker.IsOnline(userID) {
+		resetMsg, _ := json.Marshal(map[string]interface{}{
+			"type":    "unread_reset",
+			"chat_id": chatID,
+		})
+
+		s.notificationService.notifier.SendToUsers([]uuid.UUID{userID}, resetMsg)
 	}
 
 	return response, receivers, nil
@@ -445,4 +484,8 @@ func (s *MessageService) GetPaginatedMessages(chatID uuid.UUID, before *time.Tim
   }
 
   return responses, nil
+}
+
+func (s *MessageService) GetUnreadCounts(userID uuid.UUID) (map[uuid.UUID]int, error) {
+	return s.messageRepo.GetUnreadCountByChat(userID)
 }
