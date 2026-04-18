@@ -20,6 +20,7 @@ func SetupRoutes(router *gin.Engine, jwtService *utils.JWTService) {
   chatRepo := repository.NewChatRepository(db)
   notificationRepo := repository.NewNotificationRepository(db)
   
+  
   hub := websocket.NewHub()
   
   authService := service.NewAuthService(userRepo, jwtService)
